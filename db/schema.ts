@@ -1,0 +1,60 @@
+import { sql } from "drizzle-orm";
+import {
+  pgTable,
+  uuid,
+  text,
+  varchar,
+  timestamp,
+  integer,
+  numeric,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
+import { user } from "./auth-schema";
+
+export const habits = pgTable("habits", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 120 }).notNull(),
+  description: varchar("description", { length: 300 }),
+  color: varchar("color", { length: 7 }).default("#22c55e").notNull(),
+  category: varchar("category", { length: 10 }).default("build").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  archivedAt: timestamp("archived_at"),
+});
+
+export const completions = pgTable(
+  "completions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    habitId: uuid("habit_id")
+      .notNull()
+      .references(() => habits.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    completedAt: timestamp("completed_at").defaultNow().notNull(),
+    note: varchar("note", { length: 280 }),
+  },
+  (table) => [
+    uniqueIndex("completions_habit_date_uidx").on(
+      table.habitId,
+      sql`DATE(${table.completedAt})`
+    ),
+  ]
+);
+
+export const habitStats = pgTable("habit_stats", {
+  habitId: uuid("habit_id")
+    .primaryKey()
+    .references(() => habits.id, { onDelete: "cascade" }),
+  currentStreak: integer("current_streak").default(0).notNull(),
+  longestStreak: integer("longest_streak").default(0).notNull(),
+  totalCompletions: integer("total_completions").default(0).notNull(),
+  lastComputed: timestamp("last_computed").defaultNow().notNull(),
+  breakProbability: numeric("break_probability", { precision: 5, scale: 4 })
+    .default("0.5000")
+    .notNull(),
+  riskLabel: varchar("risk_label", { length: 6 }).default("medium").notNull(),
+});
