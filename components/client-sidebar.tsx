@@ -2,13 +2,26 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { RiBarChartLine, RiHome4Line, RiListCheck2, RiSettings3Line } from "@remixicon/react";
+import {
+  RiBarChartLine,
+  RiHome4Line,
+  RiListCheck2,
+  RiSettings3Line,
+  RiLayoutGridLine,
+  RiTeamLine,
+  RiQuillPenLine,
+  RiFlag2Line,
+} from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/lib/auth-client";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: RiHome4Line },
   { href: "/habits", label: "Habits", icon: RiListCheck2 },
+  { href: "/goals", label: "Goals", icon: RiFlag2Line },
+  { href: "/journal", label: "Journal", icon: RiQuillPenLine },
+  { href: "/templates", label: "Templates", icon: RiLayoutGridLine },
+  { href: "/partners", label: "Partners", icon: RiTeamLine },
   { href: "/settings", label: "Settings", icon: RiSettings3Line },
 ];
 

@@ -1,6 +1,7 @@
 import { db } from "@/db";
-import { completions, habitStats } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { completions, habits, habitStats, goalHabits, goalScores, goalScoreHistory, goals } from "@/db/schema";
+import { eq, and, isNull, inArray } from "drizzle-orm";
+import { subDays } from "date-fns";
 
 export function computeCurrentStreak(dates: Date[]): number {
   if (dates.length === 0) return 0;
@@ -226,4 +227,149 @@ export async function recomputeStats(
         lastComputed: new Date(),
       },
     });
+
+  // Recompute scores for all goals linked to this habit
+  const linkedGoalRows = await db
+    .select({ goalId: goalHabits.goalId })
+    .from(goalHabits)
+    .where(eq(goalHabits.habitId, habitId));
+
+  for (const { goalId } of linkedGoalRows) {
+    await recomputeGoalScore(goalId);
+  }
+}
+
+// ─── Goal Score Engine ────────────────────────────────────────────────────────
+
+/**
+ * Compute 0–100 progress score for a single habit toward a goal.
+ * Build habits: based on 30-day completion rate (50%) + streak strength (50%).
+ * Break habits: based on clean streak ratio (60%) + low relapse rate (40%).
+ */
+export async function computeHabitContribution(
+  habitId: string,
+  category: "build" | "break",
+  startedAt: Date
+): Promise<number> {
+  const allRows = await db
+    .select({ completedAt: completions.completedAt })
+    .from(completions)
+    .where(eq(completions.habitId, habitId));
+
+  const dates = allRows.map((r) => r.completedAt);
+  const statsRow = await db
+    .select()
+    .from(habitStats)
+    .where(eq(habitStats.habitId, habitId));
+  const stats = statsRow[0];
+
+  if (!stats) return 0;
+
+  if (category === "break") {
+    const daysSinceStart = Math.max(
+      1,
+      Math.floor((Date.now() - startedAt.getTime()) / 86400000)
+    );
+    const cleanStreak = stats.currentStreak;
+    // Clean streak: ratio capped at 100 days for full score
+    const streakScore = Math.min(cleanStreak / 100, 1) * 60;
+    // Low relapse rate: count relapses in last 30 days
+    const cutoff = subDays(new Date(), 30);
+    const relapses = dates.filter((d) => d >= cutoff).length;
+    const relapseScore = Math.max(0, 1 - relapses / 10) * 40;
+    return Math.round(streakScore + relapseScore);
+  } else {
+    const cutoff = subDays(new Date(), 30);
+    const last30 = dates.filter((d) => d >= cutoff).length;
+    const completionRate = last30 / 30;
+    const rateScore = completionRate * 50;
+    // Streak: 30 days = full score
+    const streakScore = Math.min(stats.currentStreak / 30, 1) * 50;
+    return Math.round(rateScore + streakScore);
+  }
+}
+
+export async function recomputeGoalScore(goalId: string): Promise<void> {
+  // Fetch linked habits with their weights
+  const linked = await db
+    .select({
+      habitId: goalHabits.habitId,
+      weight: goalHabits.weight,
+    })
+    .from(goalHabits)
+    .where(eq(goalHabits.goalId, goalId));
+
+  if (linked.length === 0) {
+    await db
+      .insert(goalScores)
+      .values({ goalId, score: "0", trend: "stable" })
+      .onConflictDoUpdate({
+        target: goalScores.goalId,
+        set: { score: "0", lastComputed: new Date() },
+      });
+    return;
+  }
+
+  // Fetch habit metadata for category/createdAt
+  const habitIds = linked.map((l) => l.habitId);
+  const habitRows = await db
+    .select({ id: habits.id, category: habits.category, createdAt: habits.createdAt })
+    .from(habits)
+    .where(inArray(habits.id, habitIds));
+
+  const habitMeta = new Map(habitRows.map((h) => [h.id, h]));
+
+  let weightedSum = 0;
+  let totalWeight = 0;
+
+  for (const { habitId, weight } of linked) {
+    const meta = habitMeta.get(habitId);
+    if (!meta) continue;
+    const w = parseFloat(weight as string);
+    const contribution = await computeHabitContribution(
+      habitId,
+      (meta.category as "build" | "break") ?? "build",
+      meta.createdAt
+    );
+    weightedSum += contribution * w;
+    totalWeight += w;
+  }
+
+  const score = totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 0;
+
+  // Determine trend vs last week's snapshot
+  const existing = await db
+    .select({ scoreLastWeek: goalScores.scoreLastWeek, score: goalScores.score })
+    .from(goalScores)
+    .where(eq(goalScores.goalId, goalId));
+
+  let trend: "improving" | "declining" | "stable" = "stable";
+  const prevScore = existing[0]?.scoreLastWeek
+    ? parseFloat(existing[0].scoreLastWeek as string)
+    : null;
+
+  if (prevScore !== null) {
+    if (score > prevScore + 2) trend = "improving";
+    else if (score < prevScore - 2) trend = "declining";
+  }
+
+  await db
+    .insert(goalScores)
+    .values({
+      goalId,
+      score: score.toString(),
+      trend,
+      lastComputed: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: goalScores.goalId,
+      set: { score: score.toString(), trend, lastComputed: new Date() },
+    });
+
+  // Record history point once per day (upsert by date is not needed — just append)
+  await db.insert(goalScoreHistory).values({
+    goalId,
+    score: score.toString(),
+    recordedAt: new Date(),
+  });
 }

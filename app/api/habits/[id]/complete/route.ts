@@ -59,12 +59,21 @@ export async function POST(request: NextRequest, { params }: Params) {
   revalidateTag(`stats:${id}`, "max");
   revalidateTag(`habits:${session.user.id}`, "max");
 
-  const [stats] = await db
-    .select()
-    .from(habitStats)
-    .where(eq(habitStats.habitId, id));
+  const [[stats], [completion]] = await Promise.all([
+    db.select().from(habitStats).where(eq(habitStats.habitId, id)),
+    db
+      .select({ id: completions.id })
+      .from(completions)
+      .where(
+        and(
+          eq(completions.habitId, id),
+          eq(completions.userId, session.user.id),
+          sql`DATE(${completions.completedAt}) = DATE(${completedAt.toISOString()})`
+        )
+      ),
+  ]);
 
-  return NextResponse.json({ data: stats });
+  return NextResponse.json({ data: { ...stats, completionId: completion?.id ?? null } });
 }
 
 export async function DELETE(request: NextRequest, { params }: Params) {

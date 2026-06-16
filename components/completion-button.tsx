@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { RiLoader4Line, RiCloseLine } from "@remixicon/react";
+import { ReflectionDialog } from "@/components/reflection-dialog";
 
 interface CompletionButtonProps {
   habitId: string;
@@ -27,6 +28,7 @@ export function CompletionButton({
 }: CompletionButtonProps) {
   const [completed, setCompleted] = useState(initialCompleted);
   const [loading, setLoading] = useState(false);
+  const [reflectionCompletionId, setReflectionCompletionId] = useState<string | null>(null);
   const today = format(new Date(), "yyyy-MM-dd");
   const isBreak = category === "break";
 
@@ -45,6 +47,7 @@ export function CompletionButton({
         toast(`Relapse logged for ${habitName}. Tomorrow is a new day.`);
       } else {
         toast.success(`✓ Logged — ${data.currentStreak ?? streak + 1} day streak!`);
+        if (data.completionId) setReflectionCompletionId(data.completionId);
       }
       onComplete?.();
     } catch {
@@ -142,13 +145,24 @@ export function CompletionButton({
   }
 
   return (
-    <Button
-      size="sm"
-      onClick={handleLog}
-      style={{ backgroundColor: color, borderColor: color }}
-      className="text-white hover:opacity-90"
-    >
-      Log today
-    </Button>
+    <>
+      <Button
+        size="sm"
+        onClick={handleLog}
+        style={{ backgroundColor: color, borderColor: color }}
+        className="text-white hover:opacity-90"
+      >
+        Log today
+      </Button>
+      {reflectionCompletionId && (
+        <ReflectionDialog
+          habitId={habitId}
+          completionId={reflectionCompletionId}
+          habitName={habitName}
+          open={!!reflectionCompletionId}
+          onClose={() => setReflectionCompletionId(null)}
+        />
+      )}
+    </>
   );
 }
