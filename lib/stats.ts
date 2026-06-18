@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { completions, habits, habitStats, goalHabits, goalScores, goalScoreHistory, goals } from "@/db/schema";
+import { completions, habits, habitStats, goalHabits, goalScores, goalScoreHistory, goals, userStats } from "@/db/schema";
 import { eq, and, isNull, inArray } from "drizzle-orm";
 import { subDays } from "date-fns";
 
@@ -266,10 +266,6 @@ export async function computeHabitContribution(
   if (!stats) return 0;
 
   if (category === "break") {
-    const daysSinceStart = Math.max(
-      1,
-      Math.floor((Date.now() - startedAt.getTime()) / 86400000)
-    );
     const cleanStreak = stats.currentStreak;
     // Clean streak: ratio capped at 100 days for full score
     const streakScore = Math.min(cleanStreak / 100, 1) * 60;
@@ -307,6 +303,9 @@ export async function recomputeGoalScore(goalId: string): Promise<void> {
         target: goalScores.goalId,
         set: { score: "0", lastComputed: new Date() },
       });
+    // Still recompute dream score in case goal weight changed
+    const [goalRow] = await db.select({ userId: goals.userId }).from(goals).where(eq(goals.id, goalId));
+    if (goalRow) await recomputeDreamScore(goalRow.userId);
     return;
   }
 
@@ -372,4 +371,58 @@ export async function recomputeGoalScore(goalId: string): Promise<void> {
     score: score.toString(),
     recordedAt: new Date(),
   });
+
+  // Chain: recompute dream score for the goal's owner
+  const [goalRow] = await db.select({ userId: goals.userId }).from(goals).where(eq(goals.id, goalId));
+  if (goalRow) await recomputeDreamScore(goalRow.userId);
+}
+
+// ─── Dream Life Score Engine ──────────────────────────────────────────────────
+
+/**
+ * Compute 0–100 Dream Life Score for a user.
+ * dreamScore = Σ(goalScore × goalWeight) / Σ(goalWeights)
+ * Only non-archived goals with scores are included.
+ */
+export async function recomputeDreamScore(userId: string): Promise<void> {
+  const activeGoals = await db
+    .select({
+      id: goals.id,
+      weight: goals.weight,
+      score: goalScores.score,
+    })
+    .from(goals)
+    .leftJoin(goalScores, eq(goals.id, goalScores.goalId))
+    .where(and(eq(goals.userId, userId), isNull(goals.archivedAt)));
+
+  if (activeGoals.length === 0) {
+    await db
+      .insert(userStats)
+      .values({ userId, dreamScore: "0", lastComputed: new Date() })
+      .onConflictDoUpdate({
+        target: userStats.userId,
+        set: { dreamScore: "0", lastComputed: new Date() },
+      });
+    return;
+  }
+
+  let weightedSum = 0;
+  let totalWeight = 0;
+
+  for (const g of activeGoals) {
+    const w = parseFloat(g.weight as string);
+    const s = g.score ? parseFloat(g.score as string) : 0;
+    weightedSum += s * w;
+    totalWeight += w;
+  }
+
+  const dreamScore = totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 0;
+
+  await db
+    .insert(userStats)
+    .values({ userId, dreamScore: dreamScore.toString(), lastComputed: new Date() })
+    .onConflictDoUpdate({
+      target: userStats.userId,
+      set: { dreamScore: dreamScore.toString(), lastComputed: new Date() },
+    });
 }

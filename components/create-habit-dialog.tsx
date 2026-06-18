@@ -20,7 +20,21 @@ const PRESET_COLORS = [
   "#8b5cf6", "#ec4899", "#14b8a6", "#f97316",
 ];
 
-export function CreateHabitDialog() {
+interface Props {
+  goalId?: string;
+  goalTitle?: string;
+  triggerLabel?: string;
+  triggerVariant?: "fab" | "button";
+  onCreated?: () => void;
+}
+
+export function CreateHabitDialog({
+  goalId,
+  goalTitle,
+  triggerLabel,
+  triggerVariant = "fab",
+  onCreated,
+}: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -39,12 +53,16 @@ export function CreateHabitDialog() {
       const res = await fetch("/api/habits", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description, color, category }),
+        body: JSON.stringify({ name, description, color, category, goalId }),
       });
       if (!res.ok) throw new Error("Failed to create");
       toast.success("New habit added");
       setOpen(false);
-      router.refresh();
+      if (onCreated) {
+        onCreated();
+      } else {
+        router.refresh();
+      }
     } catch {
       toast.error("Couldn't create habit — try again");
     } finally {
@@ -52,17 +70,34 @@ export function CreateHabitDialog() {
     }
   }
 
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
-        className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-50 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground"
-      >
+  const trigger =
+    triggerVariant === "fab" ? (
+      <DialogTrigger className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-50 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground">
         <RiAddLine className="h-6 w-6" />
       </DialogTrigger>
+    ) : (
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">
+          <RiAddLine className="h-3.5 w-3.5 mr-1" />
+          {triggerLabel ?? "Add habit"}
+        </Button>
+      </DialogTrigger>
+    );
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      {trigger}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>New habit</DialogTitle>
         </DialogHeader>
+
+        {goalTitle && (
+          <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary/80">
+            Supporting goal: <span className="font-semibold">{goalTitle}</span>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           {/* Category toggle */}
           <div className="flex flex-col gap-1.5">

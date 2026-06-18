@@ -41,9 +41,10 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
+  const { weight, ...rest } = parsed.data;
   const [updated] = await db
     .update(goals)
-    .set(parsed.data)
+    .set({ ...rest, ...(weight !== undefined ? { weight: weight.toString() } : {}) })
     .where(eq(goals.id, id))
     .returning();
 

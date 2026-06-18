@@ -63,11 +63,34 @@ export const habitStats = pgTable("habit_stats", {
   riskLabel: varchar("risk_label", { length: 6 }).default("medium").notNull(),
 });
 
+// ─── User Profile ─────────────────────────────────────────────────────────────
+
+export const userProfile = pgTable("user_profile", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => user.id, { onDelete: "cascade" }),
+  dreamStatement: text("dream_statement"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ─── User Stats (materialised) ────────────────────────────────────────────────
+
+export const userStats = pgTable("user_stats", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  dreamScore: numeric("dream_score", { precision: 5, scale: 2 }).default("0").notNull(),
+  lastComputed: timestamp("last_computed").defaultNow().notNull(),
+});
+
 // ─── Habit Templates ────────────────────────────────────────────────────────
 
 export const habitTemplates = pgTable("habit_templates", {
   id: uuid("id").primaryKey().defaultRandom(),
   createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+  goalTemplateId: uuid("goal_template_id"),
   name: varchar("name", { length: 120 }).notNull(),
   description: varchar("description", { length: 300 }),
   color: varchar("color", { length: 7 }).default("#22c55e").notNull(),
@@ -77,6 +100,22 @@ export const habitTemplates = pgTable("habit_templates", {
   installCount: integer("install_count").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// ─── Goal Templates ─────────────────────────────────────────────────────────
+
+export const goalTemplates = pgTable("goal_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+  title: varchar("title", { length: 200 }).notNull(),
+  description: text("description").notNull(),
+  pack: varchar("pack", { length: 60 }).notNull(),
+  isPublic: boolean("is_public").default(true).notNull(),
+  installCount: integer("install_count").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Back-reference: habitTemplates.goalTemplateId → goalTemplates.id
+// (kept as a plain uuid column above to avoid circular refs; enforced by app logic)
 
 // ─── Accountability Partners ─────────────────────────────────────────────────
 
@@ -101,6 +140,7 @@ export const partnerComments = pgTable("partner_comments", {
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
   habitId: uuid("habit_id").references(() => habits.id, { onDelete: "cascade" }),
+  goalId: uuid("goal_id").references(() => goals.id, { onDelete: "cascade" }),
   body: text("body").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -114,6 +154,7 @@ export const goals = pgTable("goals", {
     .references(() => user.id, { onDelete: "cascade" }),
   title: varchar("title", { length: 200 }).notNull(),
   description: text("description").notNull(),
+  weight: numeric("weight", { precision: 3, scale: 2 }).default("1.00").notNull(),
   targetDate: date("target_date"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   archivedAt: timestamp("archived_at"),
@@ -150,4 +191,17 @@ export const goalScoreHistory = pgTable("goal_score_history", {
     .references(() => goals.id, { onDelete: "cascade" }),
   score: numeric("score", { precision: 5, scale: 2 }).notNull(),
   recordedAt: timestamp("recorded_at").defaultNow().notNull(),
+});
+
+// ─── Journal Entries ──────────────────────────────────────────────────────────
+
+export const journalEntries = pgTable("journal_entries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  goalId: uuid("goal_id").references(() => goals.id, { onDelete: "set null" }),
+  habitId: uuid("habit_id").references(() => habits.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });

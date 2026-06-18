@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
-import { habits, habitStats } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { habits, habitStats, goalHabits, goals } from "@/db/schema";
+import { eq, desc, and } from "drizzle-orm";
 import { createHabitSchema } from "@/lib/validations";
 import { revalidateTag } from "next/cache";
 import { headers } from "next/headers";
+import { recomputeGoalScore } from "@/lib/stats";
 
 export async function GET() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -52,12 +53,32 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const { goalId, ...habitData } = parsed.data;
+
   const [habit] = await db
     .insert(habits)
-    .values({ ...parsed.data, userId: session.user.id })
+    .values({ ...habitData, userId: session.user.id })
     .returning();
 
   await db.insert(habitStats).values({ habitId: habit.id });
+
+  // Auto-link to goal if provided
+  if (goalId) {
+    const [goal] = await db
+      .select({ id: goals.id })
+      .from(goals)
+      .where(and(eq(goals.id, goalId), eq(goals.userId, session.user.id)));
+
+    if (goal) {
+      await db
+        .insert(goalHabits)
+        .values({ goalId, habitId: habit.id })
+        .onConflictDoNothing();
+
+      await recomputeGoalScore(goalId);
+      revalidateTag(`goal:${goalId}`, "max");
+    }
+  }
 
   revalidateTag(`habits:${session.user.id}`, "max");
 

@@ -9,6 +9,10 @@ import {
   goalHabits,
   goalScores,
   goalScoreHistory,
+  userProfile,
+  userStats,
+  journalEntries,
+  goalTemplates,
 } from "@/db/schema";
 import { and, desc, eq, gte, or, isNull, isNotNull } from "drizzle-orm";
 import { subDays } from "date-fns";
@@ -77,6 +81,34 @@ export async function getTodayCompletions(userId: string) {
     .where(and(eq(completions.userId, userId), gte(completions.completedAt, today)));
 }
 
+// ─── User Profile ─────────────────────────────────────────────────────────────
+
+export async function getUserProfile(userId: string) {
+  "use cache";
+  cacheTag(`profile:${userId}`);
+
+  const [profile] = await db
+    .select()
+    .from(userProfile)
+    .where(eq(userProfile.userId, userId));
+
+  return profile ?? null;
+}
+
+// ─── User Stats (Dream Life Score) ───────────────────────────────────────────
+
+export async function getUserStats(userId: string) {
+  "use cache";
+  cacheTag(`user-stats:${userId}`);
+
+  const [stats] = await db
+    .select()
+    .from(userStats)
+    .where(eq(userStats.userId, userId));
+
+  return stats ?? null;
+}
+
 // ─── Templates ────────────────────────────────────────────────────────────────
 
 export async function getTemplates() {
@@ -88,6 +120,17 @@ export async function getTemplates() {
     .from(habitTemplates)
     .where(eq(habitTemplates.isPublic, true))
     .orderBy(desc(habitTemplates.installCount));
+}
+
+export async function getGoalTemplates() {
+  "use cache";
+  cacheTag("goal-templates");
+
+  return db
+    .select()
+    .from(goalTemplates)
+    .where(eq(goalTemplates.isPublic, true))
+    .orderBy(desc(goalTemplates.installCount));
 }
 
 // ─── Accountability Partners ──────────────────────────────────────────────────
@@ -108,7 +151,7 @@ export async function getPartnershipsForUser(userId: string) {
     .orderBy(desc(accountabilityPartners.invitedAt));
 }
 
-// ─── Reflections ──────────────────────────────────────────────────────────────
+// ─── Reflections (legacy — kept for backwards compat) ────────────────────────
 
 export async function getReflectionsForHabit(habitId: string) {
   "use cache";
@@ -129,6 +172,67 @@ export async function getReflectionsForHabit(habitId: string) {
     .orderBy(desc(completions.completedAt));
 }
 
+// ─── Journal Entries ──────────────────────────────────────────────────────────
+
+export async function getJournalEntries(userId: string) {
+  "use cache";
+  cacheTag(`journal:${userId}`);
+
+  return db
+    .select({
+      id: journalEntries.id,
+      body: journalEntries.body,
+      createdAt: journalEntries.createdAt,
+      goalId: journalEntries.goalId,
+      goalTitle: goals.title,
+      habitId: journalEntries.habitId,
+      habitName: habits.name,
+      habitColor: habits.color,
+    })
+    .from(journalEntries)
+    .leftJoin(goals, eq(journalEntries.goalId, goals.id))
+    .leftJoin(habits, eq(journalEntries.habitId, habits.id))
+    .where(eq(journalEntries.userId, userId))
+    .orderBy(desc(journalEntries.createdAt));
+}
+
+export async function getJournalEntriesForGoal(goalId: string) {
+  "use cache";
+  cacheTag(`journal-goal:${goalId}`);
+
+  return db
+    .select({
+      id: journalEntries.id,
+      body: journalEntries.body,
+      createdAt: journalEntries.createdAt,
+      habitId: journalEntries.habitId,
+      habitName: habits.name,
+      habitColor: habits.color,
+    })
+    .from(journalEntries)
+    .leftJoin(habits, eq(journalEntries.habitId, habits.id))
+    .where(eq(journalEntries.goalId, goalId))
+    .orderBy(desc(journalEntries.createdAt));
+}
+
+export async function getJournalEntriesForHabit(habitId: string) {
+  "use cache";
+  cacheTag(`journal-habit:${habitId}`);
+
+  return db
+    .select({
+      id: journalEntries.id,
+      body: journalEntries.body,
+      createdAt: journalEntries.createdAt,
+      goalId: journalEntries.goalId,
+      goalTitle: goals.title,
+    })
+    .from(journalEntries)
+    .leftJoin(goals, eq(journalEntries.goalId, goals.id))
+    .where(eq(journalEntries.habitId, habitId))
+    .orderBy(desc(journalEntries.createdAt));
+}
+
 // ─── Goals ────────────────────────────────────────────────────────────────────
 
 export async function getGoalsForUser(userId: string) {
@@ -141,6 +245,7 @@ export async function getGoalsForUser(userId: string) {
       userId: goals.userId,
       title: goals.title,
       description: goals.description,
+      weight: goals.weight,
       targetDate: goals.targetDate,
       createdAt: goals.createdAt,
       archivedAt: goals.archivedAt,
@@ -193,4 +298,64 @@ export async function getGoalDetail(goalId: string) {
     .where(eq(goalHabits.goalId, goalId));
 
   return { goal, score, history, habits: linked };
+}
+
+// ─── Habits grouped by goal (for dashboard) ───────────────────────────────────
+
+export async function getHabitsGroupedByGoal(userId: string) {
+  "use cache";
+  cacheTag(`habits:${userId}`);
+  cacheTag(`goals:${userId}`);
+
+  const activeGoals = await db
+    .select({
+      id: goals.id,
+      title: goals.title,
+      score: goalScores.score,
+      trend: goalScores.trend,
+    })
+    .from(goals)
+    .leftJoin(goalScores, eq(goals.id, goalScores.goalId))
+    .where(and(eq(goals.userId, userId), isNull(goals.archivedAt)))
+    .orderBy(desc(goals.createdAt));
+
+  const goalHabitRows = await db
+    .select({
+      goalId: goalHabits.goalId,
+      habitId: goalHabits.habitId,
+    })
+    .from(goalHabits)
+    .innerJoin(habits, eq(goalHabits.habitId, habits.id))
+    .where(eq(habits.userId, userId));
+
+  const linkedHabitIds = new Set(goalHabitRows.map((r) => r.habitId));
+
+  const allHabits = await db
+    .select({
+      id: habits.id,
+      name: habits.name,
+      color: habits.color,
+      category: habits.category,
+      archivedAt: habits.archivedAt,
+      createdAt: habits.createdAt,
+      currentStreak: habitStats.currentStreak,
+      breakProbability: habitStats.breakProbability,
+      riskLabel: habitStats.riskLabel,
+      totalCompletions: habitStats.totalCompletions,
+    })
+    .from(habits)
+    .leftJoin(habitStats, eq(habits.id, habitStats.habitId))
+    .where(and(eq(habits.userId, userId), isNull(habits.archivedAt)));
+
+  const habitMap = new Map(allHabits.map((h) => [h.id, h]));
+
+  const grouped = activeGoals.map((g) => {
+    const linkedIds = goalHabitRows.filter((r) => r.goalId === g.id).map((r) => r.habitId);
+    const linkedHabits = linkedIds.map((id) => habitMap.get(id)).filter(Boolean);
+    return { goal: g, habits: linkedHabits };
+  });
+
+  const ungrouped = allHabits.filter((h) => !linkedHabitIds.has(h.id));
+
+  return { grouped, ungrouped };
 }

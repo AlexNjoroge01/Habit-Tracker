@@ -9,6 +9,7 @@ export const createHabitSchema = z.object({
     .optional()
     .default("#22c55e"),
   category: z.enum(["build", "break"]).default("build"),
+  goalId: z.string().uuid().optional(),
 });
 
 export const updateHabitSchema = createHabitSchema
@@ -59,6 +60,16 @@ export const installTemplateSchema = z.object({
   name: z.string().min(1).max(120).optional(),
 });
 
+export const createGoalTemplateSchema = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().min(1),
+  pack: z.string().min(1).max(60),
+});
+
+export const installGoalTemplateSchema = z.object({
+  title: z.string().min(1).max(200).optional(),
+});
+
 // ─── Accountability Partners ─────────────────────────────────────────────────
 
 export const invitePartnerSchema = z.object({
@@ -68,6 +79,7 @@ export const invitePartnerSchema = z.object({
 export const addCommentSchema = z.object({
   body: z.string().min(1).max(1000),
   habitId: z.string().uuid().optional(),
+  goalId: z.string().uuid().optional(),
 });
 
 // ─── Goals ───────────────────────────────────────────────────────────────────
@@ -76,6 +88,7 @@ export const createGoalSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().min(1),
   targetDate: z.string().optional(),
+  weight: z.number().min(0.1).max(5).optional().default(1),
 });
 
 export const updateGoalSchema = createGoalSchema.partial().extend({
@@ -85,4 +98,18 @@ export const updateGoalSchema = createGoalSchema.partial().extend({
 export const linkHabitSchema = z.object({
   habitId: z.string().uuid(),
   weight: z.number().min(0.1).max(5).optional().default(1),
+});
+
+// ─── Journal ─────────────────────────────────────────────────────────────────
+
+export const addJournalEntrySchema = z.object({
+  body: z.string().min(1).max(5000),
+  goalId: z.string().uuid().optional(),
+  habitId: z.string().uuid().optional(),
+});
+
+// ─── User Profile ─────────────────────────────────────────────────────────────
+
+export const updateDreamStatementSchema = z.object({
+  dreamStatement: z.string().max(5000),
 });
