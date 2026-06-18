@@ -76,11 +76,9 @@ export function CreateHabitDialog({
         <RiAddLine className="h-6 w-6" />
       </DialogTrigger>
     ) : (
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline">
-          <RiAddLine className="h-3.5 w-3.5 mr-1" />
-          {triggerLabel ?? "Add habit"}
-        </Button>
+      <DialogTrigger render={<Button size="sm" variant="outline" />}>
+        <RiAddLine className="h-3.5 w-3.5 mr-1" />
+        {triggerLabel ?? "Add habit"}
       </DialogTrigger>
     );
 
